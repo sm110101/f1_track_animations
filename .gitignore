@@ -1,1 +1,3 @@
 f1_animations/
+__pycache__/
+track_db.duckdb
