@@ -210,6 +210,7 @@ def main():
                 fig = create_frame_plot(frame_idx)
                 plot_placeholder.pyplot(fig)
                 plt.close(fig)
+                time.sleep(0.001)
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
