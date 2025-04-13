@@ -21,6 +21,33 @@ import fastf1 as ff1
 import fastf1.plotting
 import time
 
+
+driver_dict = {
+    'RUS': {'name': 'George Russell', 'team': 'Mercedes'},
+    'ALB': {'name': 'Alexander Albon', 'team': 'Williams'},
+    'HUL': {'name': 'Nico Hülkenberg', 'team': 'Haas'},
+    'SAI': {'name': 'Carlos Sainz Jr.', 'team': 'Ferrari'},
+    'HAM': {'name': 'Lewis Hamilton', 'team': 'Mercedes'},
+    'BOT': {'name': 'Valtteri Bottas', 'team': 'Kick Sauber'},
+    'MAG': {'name': 'Kevin Magnussen', 'team': 'Haas'},
+    'LAW': {'name': 'Liam Lawson', 'team': 'Visa Cash App RB'},
+    'COL': {'name': 'Franco Colapinto', 'team': 'Williams'},
+    'ALO': {'name': 'Fernando Alonso', 'team': 'Aston Martin'},
+    'PIA': {'name': 'Oscar Piastri', 'team': 'McLaren'},
+    'RIC': {'name': 'Daniel Ricciardo', 'team': 'Visa Cash App RB'},
+    'VER': {'name': 'Max Verstappen', 'team': 'Red Bull Racing'},
+    'STR': {'name': 'Lance Stroll', 'team': 'Aston Martin'},
+    'PER': {'name': 'Sergio Pérez', 'team': 'Red Bull Racing'},
+    'OCO': {'name': 'Esteban Ocon', 'team': 'Alpine'},
+    'GAS': {'name': 'Pierre Gasly', 'team': 'Alpine'},
+    'ZHO': {'name': 'Zhou Guanyu', 'team': 'Kick Sauber'},
+    'TSU': {'name': 'Yuki Tsunoda', 'team': 'Visa Cash App RB'},
+    'LEC': {'name': 'Charles Leclerc', 'team': 'Ferrari'},
+    'NOR': {'name': 'Lando Norris', 'team': 'McLaren'},
+    'SAR': {'name': 'Logan Sargeant', 'team': 'Williams'}
+}
+
+
 def ensure_database_exists():
     """Check if database exists, if not create and populate it"""
     db_path = Path("database/track_db.duckdb")
@@ -32,7 +59,18 @@ def ensure_database_exists():
         st.info("Database already exists!")
 
 def main():
-    st.title("F1 Track Animations")
+    st.title("F1 Track Animations (2024)")
+    st.markdown("""
+    **Overview:**            
+    - Animation of Formula 1 telemetry data comparing a selected driver's lap against the fastest lap of the race. 
+    - Data is sourced from the FastF1 API and stored in a DuckDB database for efficient querying.
+    **How to use:**
+    1. Select a race and driver from the sidebar
+    2. Choose between their fastest or slowest lap
+    3. Pick a telemetry variable to visualize on the track (Speed, Throttle, Gear, etc.)
+    4. Use the play/pause button to control the animation
+    5. Drag the slider to manually scrub through the lap
+    """)
     ensure_database_exists()
 
     # Constants
@@ -52,14 +90,17 @@ def main():
             WHERE year = ? AND TRIM(race_name) = ?
         """, [2024, race_name]).fetchdf()
         con.close()
-        return df['driver_code'].tolist()
+        # Create a mapping of driver names to codes for the dropdown
+        driver_options = {f"{driver_dict[code]['name']} ({code})": code for code in df['driver_code'].tolist()}
+        return driver_options
 
-    drivers = get_drivers(selected_race)
-    if not drivers:
+    driver_options = get_drivers(selected_race)
+    if not driver_options:
         st.error(f"No drivers found for {selected_race}")
         st.stop()
 
-    selected_driver = st.sidebar.selectbox("Select a Driver:", drivers)
+    selected_driver_name = st.sidebar.selectbox("Select a Driver:", list(driver_options.keys()))
+    selected_driver = driver_options[selected_driver_name]  # This is the driver code
 
     # -- Lap selection
     @st.cache_data
@@ -130,6 +171,10 @@ def main():
         frame_count = min(len(selected_valid), len(fastest_valid))
         frame_indices = np.linspace(0, frame_count - 1, frame_count).astype(int)
 
+        # Add interpolation points between frames
+        interpolation_factor = 3  # Number of interpolated points between each frame
+        interpolated_indices = np.linspace(0, frame_count - 1, frame_count * interpolation_factor)
+
         # Prepare color and segment data
         x = selected_tel['X'].to_numpy()
         y = selected_tel['Y'].to_numpy()
@@ -169,14 +214,30 @@ def main():
             cbar = plt.colorbar(lc, ax=ax)
             cbar.set_label(f'{telemetry_var} ({units[telemetry_var]})')
 
-            idx = frame_idx % frame_count
-            selected_idx = selected_valid[idx]
-            fastest_idx = fastest_valid[idx]
+            # Calculate interpolated positions
+            idx = frame_idx / interpolation_factor
+            prev_idx = int(idx)
+            next_idx = min(prev_idx + 1, frame_count - 1)
+            alpha = idx - prev_idx  # interpolation factor between 0 and 1
 
-            ax.plot([selected_tel['X'].iloc[selected_idx]], [selected_tel['Y'].iloc[selected_idx]],
-                    'ko', markersize=10, label=f'{selected_driver}', zorder=10)
-            ax.plot([fastest_tel['X'].iloc[fastest_idx]], [fastest_tel['Y'].iloc[fastest_idx]],
-                    'o', color='gold', markersize=10, label=f'{fastest_driver} (Fastest)', zorder=10)
+            # Interpolate selected driver position
+            selected_prev = selected_valid[prev_idx]
+            selected_next = selected_valid[next_idx]
+            selected_x = (1 - alpha) * selected_tel['X'].iloc[selected_prev] + alpha * selected_tel['X'].iloc[selected_next]
+            selected_y = (1 - alpha) * selected_tel['Y'].iloc[selected_prev] + alpha * selected_tel['Y'].iloc[selected_next]
+
+            # Interpolate fastest driver position
+            fastest_prev = fastest_valid[prev_idx]
+            fastest_next = fastest_valid[next_idx]
+            fastest_x = (1 - alpha) * fastest_tel['X'].iloc[fastest_prev] + alpha * fastest_tel['X'].iloc[fastest_next]
+            fastest_y = (1 - alpha) * fastest_tel['Y'].iloc[fastest_prev] + alpha * fastest_tel['Y'].iloc[fastest_next]
+
+            ax.plot([selected_x], [selected_y],
+                    'ko', color='black', markersize=10, 
+                    label=f"{driver_dict[selected_driver]['name']}", zorder=10)
+            ax.plot([fastest_x], [fastest_y],
+                    'o', color='gold', markersize=10, 
+                    label=f"{driver_dict[fastest_driver]['name']} (Fastest)", zorder=10)
 
             ax.set_xlim(min(selected_tel['X'].min(), fastest_tel['X'].min()) - 100,
                         max(selected_tel['X'].max(), fastest_tel['X'].max()) + 100)
@@ -185,32 +246,56 @@ def main():
 
             ax.axis('equal')
             ax.axis('off')
-            ax.set_title(f'{selected_driver} vs Fastest Lap ({fastest_driver}) – {selected_race}', pad=20)
-            ax.legend(loc='upper right')
+            ax.set_title(f'{driver_dict[selected_driver]["name"]} vs Fastest Lap ({driver_dict[fastest_driver]["name"]})')
+            plt.suptitle(f'{selected_race} 2024', fontsize=18, fontweight='bold', x=0.40)
+
+            # Adjust legend position based on race
+            if selected_race in ['Singapore Grand Prix', 'United States Grand Prix']:
+                ax.legend(loc='upper right', bbox_to_anchor=(1.05, 1.05))
+            else:
+                ax.legend(loc='upper right')
+
             plt.tight_layout()
 
             return fig
 
-
-
         # ---------- UI ----------
         col1, col2 = st.columns([1, 3])
         with col1:
-            play_button = st.button("▶️ Play Animation")
+            # Initialize session state variables
+            if 'is_playing' not in st.session_state:
+                st.session_state.is_playing = False
+            if 'current_frame' not in st.session_state:
+                st.session_state.current_frame = 0
+            
+            # Play/Pause button
+            if st.button("▶️ Play Animation" if not st.session_state.is_playing else "⏸️ Pause Animation"):
+                st.session_state.is_playing = not st.session_state.is_playing
+            
+            # Restart button
+            if st.button("🔄 Restart Animation"):
+                st.session_state.current_frame = 0
+                st.session_state.is_playing = False
 
-        frame_idx = st.slider("🕹️ Select Frame", 0, frame_count - 1, 0)
+        # Frame slider
+        frame_idx = st.slider("🕹️ Select Frame", 0, frame_count * interpolation_factor - 1, 
+                            st.session_state.current_frame)
+        st.session_state.current_frame = frame_idx
+        
         fig = create_frame_plot(frame_idx)
-        plot_placeholder = st.empty()  # Create a single placeholder for the plot
+        plot_placeholder = st.empty()
         plot_placeholder.pyplot(fig)
 
-        if play_button:
-            # Animate on the same plot with faster updates
-            for frame in range(0, frame_count, 2):
-                frame_idx = frame  # Update the frame index
-                fig = create_frame_plot(frame_idx)
+        if st.session_state.is_playing:
+            # Animate with interpolated frames, skipping every other frame
+            for frame in range(st.session_state.current_frame, frame_count * interpolation_factor, 10):
+                if not st.session_state.is_playing:  # Check if paused
+                    break
+                st.session_state.current_frame = frame
+                fig = create_frame_plot(frame)
                 plot_placeholder.pyplot(fig)
                 plt.close(fig)
-                time.sleep(0.001)
+                time.sleep(0.0000000000001)  # Minimal sleep time
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
