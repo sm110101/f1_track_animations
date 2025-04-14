@@ -2,8 +2,12 @@ import streamlit as st
 from pathlib import Path
 import sys
 
-# Set page config FIRST
-st.set_page_config(layout="wide")
+st.set_page_config(
+    layout="wide",
+    page_title="F1 Track Animations",
+    initial_sidebar_state="expanded",
+    page_icon="🏎️"
+)
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent
