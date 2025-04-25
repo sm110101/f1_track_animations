@@ -5,8 +5,7 @@ import sys
 st.set_page_config(
     layout="wide",
     page_title="F1 Track Animations",
-    initial_sidebar_state="expanded",
-    page_icon="🏎️"
+    initial_sidebar_state="expanded"
 )
 
 # Add the project root to Python path
